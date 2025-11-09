@@ -7,17 +7,29 @@ on:
     branches: [main]
 
 jobs:
-  unit-tests:
-    name: Unit Tests
+  test:
+    name: Build and Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Start ClickHouse
+        run: |
+          docker compose up -d clickhouse
+          echo "Waiting for ClickHouse to be ready..."
+          for i in $(seq 1 60); do
+            if curl -sSf http://localhost:8123/ >/dev/null 2>&1; then
+              echo "ClickHouse is ready"
+              break
+            fi
+            sleep 2
+          done
+
       - name: Setup Erlang/OTP and Gleam
         uses: erlef/setup-beam@v1
         with:
-          otp-version: "26.0"
+          otp-version: "27.0"
           gleam-version: "1.13.0"
 
       - name: Show Gleam version
@@ -31,9 +43,9 @@ jobs:
             ~/.gleam
             ./_gleam_deps
             ./build
-          key: ${{ runner.os }}-gleam-1.13.0-cache-v1-${{ hashFiles('**/gleam.toml') }}
+          key: ${{ runner.os }}-gleam-1.13.0-otp27-cache-v1-${{ hashFiles('**/gleam.toml') }}
           restore-keys: |
-            ${{ runner.os }}-gleam-1.13.0-cache-v1-
+            ${{ runner.os }}-gleam-1.13.0-otp27-cache-v1-
 
       - name: Install dependencies
         run: gleam deps download
@@ -44,5 +56,14 @@ jobs:
       - name: Build project
         run: gleam build
 
-      - name: Run unit tests
+      - name: Run all tests
+        env:
+          CLICKHOUSE_USER: test_user
+          CLICKHOUSE_PASSWORD: test_password
+          CLICKHOUSE_DB: test_db
+          CLICKHOUSE_URL: http://localhost:8123
         run: gleam test
+
+      - name: Cleanup ClickHouse
+        if: always()
+        run: docker compose down -v
