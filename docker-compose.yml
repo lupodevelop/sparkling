@@ -1,0 +1,25 @@
+services:
+  clickhouse:
+    # Image can be overridden via environment variable CLICKHOUSE_IMAGE.
+    # Use format: clickhouse/clickhouse-server:<version>
+    image: "${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:latest}"
+    container_name: sparkling_clickhouse_test
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native protocol (for future)
+    environment:
+      CLICKHOUSE_DB: test_db
+      CLICKHOUSE_USER: test_user
+      CLICKHOUSE_PASSWORD: test_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  clickhouse_data:
