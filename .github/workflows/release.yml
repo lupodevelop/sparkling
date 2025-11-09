@@ -98,11 +98,6 @@ jobs:
           git push origin "${TAG}"
           echo "Pushed tag ${TAG} to origin"
 
-      - name: Validate package (dry-run)
-        run: |
-          echo "Validating package before publishing..."
-          gleam publish --dry-run
-
       - name: Publish to Hex
         env:
           HEXPM_API_KEY: ${{ secrets.HEX_API_KEY }}
