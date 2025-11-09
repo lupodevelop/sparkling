@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Erlang/OTP and Gleam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26.0"
+          gleam-version: "1.11.0"
+
+      - name: Show Gleam version
+        run: gleam --version
+
+      - name: Cache Gleam deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/gleam
+            ~/.gleam
+            ./_gleam_deps
+            ./build
+          key: ${{ runner.os }}-gleam-1.11.0-cache-v1-${{ hashFiles('**/gleam.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gleam-1.11.0-cache-v1-
+
+      - name: Install dependencies
+        run: gleam deps download
+
+      - name: Check formatting
+        run: gleam format --check src test
+
+      - name: Build project
+        run: gleam build
+
+      - name: Run unit tests
+        run: gleam test
