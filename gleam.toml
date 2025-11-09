@@ -1,0 +1,26 @@
+name = "sparkling"
+version = "0.1.0"
+description = "A fast, type-safe ClickHouse client for Gleam with composable queries"
+licenses = ["Apache-2.0"]
+authors = ["Scaratti Daniele aka lupodevelp"]
+repository = { type = "github", user = "lupodevelop", repo = "sparkling" }
+links = [
+  { title = "GitHub", href = "https://github.com/lupodevelop/sparkling" }
+]
+#
+# For a full reference of all the available options, you can have a look at
+# https://gleam.run/writing-gleam/gleam-toml/.
+
+[dependencies]
+gleam_stdlib = ">= 0.34.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_http = ">= 4.0.0 and < 5.0.0"
+gleam_httpc = ">= 4.0.0 and < 5.0.0"
+gleam_erlang = "~> 1.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+
+[package]
+# Files to include in published package (relative to `sparkling/`)
+files = ["src", "README.md", "CHANGELOG.md", "LICENSE"]
