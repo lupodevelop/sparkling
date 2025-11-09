@@ -103,7 +103,9 @@ jobs:
           HEXPM_API_KEY: ${{ secrets.HEX_API_KEY }}
         run: |
           echo "Publishing package to Hex..."
-          gleam publish --yes
+          # For versions < 1.0.0, gleam publish requires explicit confirmation
+          # We pipe the required text to accept publishing 0.x versions
+          echo "I am not using semantic versioning" | gleam publish --yes
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
