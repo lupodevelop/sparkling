@@ -18,7 +18,10 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "26.0"
-          gleam-version: "1.6.1"
+          gleam-version: "1.11.0"
+
+      - name: Show Gleam version
+        run: gleam --version
 
       - name: Cache Gleam deps and build
         uses: actions/cache@v4
@@ -28,16 +31,15 @@ jobs:
             ~/.gleam
             ./_gleam_deps
             ./build
-          key: ${{ runner.os }}-gleam-cache-v1-${{ hashFiles('**/gleam.toml') }}
+          key: ${{ runner.os }}-gleam-1.11.0-cache-v1-${{ hashFiles('**/gleam.toml') }}
           restore-keys: |
-            ${{ runner.os }}-gleam-cache-v1-
+            ${{ runner.os }}-gleam-1.11.0-cache-v1-
 
       - name: Install dependencies
-        run: |
-          gleam deps download || true
+        run: gleam deps download
 
       - name: Check formatting
-        run: gleam format --check src test || true
+        run: gleam format --check src test
 
       - name: Build project
         run: gleam build

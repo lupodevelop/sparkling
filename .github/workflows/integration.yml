@@ -26,7 +26,7 @@ jobs:
           path: |
             ./build
             ~/.cache/gleam
-          key: ${{ runner.os }}-gleam-integration-${{ matrix.clickhouse_version }}-v1-${{ hashFiles('**/gleam.toml') }}
+          key: ${{ runner.os }}-gleam-1.11.0-integration-${{ matrix.clickhouse_version }}-v1-${{ hashFiles('**/gleam.toml') }}
 
       - name: Start ClickHouse ${{ matrix.clickhouse_version }} (docker-compose)
         env:
@@ -52,7 +52,10 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "26.0"
-          gleam-version: "1.6.1"
+          gleam-version: "1.11.0"
+
+      - name: Show Gleam version
+        run: gleam --version
 
       - name: Run integration tests
         env:
