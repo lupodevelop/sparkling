@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  release:
+    name: Release to Hex
+    runs-on: ubuntu-latest
+    if: >-
+      contains(github.ref, 'refs/tags/') || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start ClickHouse (for integration tests)
+        run: |
+          # If you keep the repository's docker-compose.yml with a service named `clickhouse` this will start it.
+          docker compose up -d clickhouse || true
+          echo "Waiting for ClickHouse to be ready..."
+          for i in $(seq 1 60); do
+            if curl -sSf http://localhost:8123/ >/dev/null 2>&1; then
+              echo "ClickHouse is ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Setup Erlang/OTP and Gleam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.0"
+          gleam-version: "1.13.0"
+
+      - name: Show versions
+        run: |
+          erl -version || true
+          gleam --version
+
+      - name: Cache Gleam deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/gleam
+            ~/.gleam
+            ./_gleam_deps
+            ./build
+          key: ${{ runner.os }}-gleam-1.13.0-otp27-release-${{ hashFiles('**/gleam.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gleam-1.13.0-otp27-release-
+
+      - name: Install dependencies
+        run: gleam deps download
+
+      - name: Check formatting
+        run: gleam format --check src test
+
+      - name: Build
+        run: gleam build
+
+      - name: Run tests
+        env:
+          CLICKHOUSE_USER: test_user
+          CLICKHOUSE_PASSWORD: test_password
+          CLICKHOUSE_DB: test_db
+          CLICKHOUSE_URL: http://localhost:8123
+        run: gleam test
+
+      - name: Create tag from gleam.toml (on merged PR)
+        if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version' gleam.toml | sed -E 's/.*= *"([^"]+)".*/\1/')
+          TAG="v${VERSION}"
+          echo "Derived tag: ${TAG}"
+          # Ensure we have refs to push
+          git fetch origin --tags
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists, skipping"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          # Push using the default authentication provided to the runner (GITHUB_TOKEN)
+          git push origin "${TAG}"
+          echo "Pushed tag ${TAG} to origin"
+
+      - name: Validate package (dry-run)
+        run: |
+          echo "Validating package before publishing..."
+          gleam publish --dry-run
+
+      - name: Publish to Hex
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: |
+          echo "Publishing package to Hex..."
+          gleam publish --yes
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          body: |
+            Release ${{ github.ref_name }}
+            
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md) for details.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup ClickHouse
+        if: always()
+        run: docker compose down -v || true
