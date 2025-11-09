@@ -1,0 +1,78 @@
+name: Integration tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: integration-tests-${{ matrix.clickhouse_version }}
+      cancel-in-progress: false
+    timeout-minutes: 90
+    strategy:
+      matrix:
+        clickhouse_version: ["22.8", "23.7", "24.4", "latest"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Gleam build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ./build
+            ~/.cache/gleam
+          key: ${{ runner.os }}-gleam-integration-${{ matrix.clickhouse_version }}-v1-${{ hashFiles('**/gleam.toml') }}
+
+      - name: Start ClickHouse ${{ matrix.clickhouse_version }} (docker-compose)
+        env:
+          CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:${{ matrix.clickhouse_version }}
+        run: |
+          echo "Using CLICKHOUSE_IMAGE=$CLICKHOUSE_IMAGE"
+          # Ensure docker compose is available (Docker-hosted runners include docker)
+          docker compose pull clickhouse || true
+          docker compose up -d --remove-orphans clickhouse
+
+      - name: Wait for ClickHouse HTTP
+        run: |
+          echo "Waiting for ClickHouse HTTP on localhost:8123..."
+          for i in $(seq 1 60); do
+            if curl -sSf http://localhost:8123/ >/dev/null 2>&1; then
+              echo "ClickHouse is up"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Setup Erlang/OTP and Gleam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26.0"
+          gleam-version: "1.6.1"
+
+      - name: Run integration tests
+        env:
+          CLICKHOUSE_USER: test_user
+          CLICKHOUSE_PASSWORD: test_password
+          CLICKHOUSE_DB: test_db
+          CLICKHOUSE_URL: http://localhost:8123
+        run: |
+          gleam build
+          gleam test
+
+      - name: Upload integration test artifacts (logs)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-${{ matrix.clickhouse_version }}
+          path: |
+            ./build/logs || true
+
+      - name: Cleanup ClickHouse
+        if: always()
+        run: |
+          docker compose down -v || true

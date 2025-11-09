@@ -1,0 +1,65 @@
+name: Smoke Integration (PR)
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  smoke-integration:
+    name: Smoke Integration (ClickHouse)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start ClickHouse (docker-compose)
+        env:
+          CLICKHOUSE_IMAGE: clickhouse/clickhouse-server:23.7
+        run: |
+          echo "Using CLICKHOUSE_IMAGE=$CLICKHOUSE_IMAGE"
+          docker compose pull clickhouse || true
+          docker compose up -d --remove-orphans clickhouse
+
+      - name: Wait for ClickHouse HTTP
+        run: |
+          echo "Waiting for ClickHouse HTTP on localhost:8123..."
+          for i in $(seq 1 40); do
+            if curl -sSf http://localhost:8123/ >/dev/null 2>&1; then
+              echo "ClickHouse is up"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Smoke test - SELECT 1
+        run: |
+          set -e
+          OUT=$(curl -sS -u test_user:test_password "http://localhost:8123/?query=SELECT%201%20as%20result%20FORMAT%20JSONEachRow&database=test_db")
+          echo "Got: $OUT"
+          if [ "$OUT" != '{"result":1}' ] && [ "$OUT" != '{"result":1}\n' ]; then
+            echo "Unexpected response: $OUT"
+            exit 2
+          fi
+
+      - name: Smoke test - create table, insert and select
+        run: |
+          set -e
+          DDL="CREATE TABLE IF NOT EXISTS smoke_test (id UInt32, name String) ENGINE = MergeTree() ORDER BY id"
+          curl -sS -u test_user:test_password -d "$DDL" "http://localhost:8123/?database=test_db"
+
+          INSERT="INSERT INTO smoke_test (id,name) VALUES (1,'smoke')"
+          curl -sS -u test_user:test_password -d "$INSERT" "http://localhost:8123/?database=test_db"
+
+          OUT=$(curl -sS -u test_user:test_password "http://localhost:8123/?query=SELECT%20*%20FROM%20smoke_test%20WHERE%20id%3D1%20FORMAT%20JSONEachRow&database=test_db")
+          echo "Select returned: $OUT"
+          if [ -z "$OUT" ]; then
+            echo "Select returned empty"
+            exit 3
+          fi
+
+      - name: Cleanup ClickHouse
+        if: always()
+        run: |
+          docker compose down -v || true
