@@ -8,3 +8,24 @@ erl_crash.dump
 *.beam
 /config/*.secret.exs
 .elixir_ls/
+
+# Ignore editor and build artifacts
+.DS_Store
+node_modules/
+*.log
+
+# Gleam build artifacts
+sparkling/_build/
+sparkling/_gleam_deps/
+~/.cache/gleam
+~/.gleam
+
+# OS files
+.idea/
+.vscode/
+
+# Erlang/BEAM artifacts
+*.beam
+*.ez
+/build
+erl_crash.dump
