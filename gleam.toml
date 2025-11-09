@@ -1,5 +1,5 @@
 name = "sparkling"
-version = "0.1.0"
+version = "1.0.0"
 description = "A fast, type-safe ClickHouse client for Gleam with composable queries"
 licenses = ["Apache-2.0"]
 authors = ["Scaratti Daniele aka lupodevelp"]
