@@ -22,5 +22,4 @@ gleam_erlang = "~> 1.0"
 gleeunit = ">= 1.0.0 and < 2.0.0"
 
 [package]
-# Files to include in published package (relative to `sparkling/`)
 files = ["src", "README.md", "CHANGELOG.md", "LICENSE"]
