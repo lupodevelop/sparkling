@@ -21,10 +21,12 @@ jobs:
           for i in $(seq 1 60); do
             if curl -sSf http://localhost:8123/ >/dev/null 2>&1; then
               echo "ClickHouse is ready"
-              break
+              exit 0
             fi
             sleep 2
           done
+          echo "ClickHouse did not become ready in time"
+          exit 1
 
       - name: Setup Erlang/OTP and Gleam
         uses: erlef/setup-beam@v1

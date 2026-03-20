@@ -1,15 +1,16 @@
 /// Schema definition for ClickHouse tables and fields.
-/// 
+///
 /// This module provides typed representations of ClickHouse tables and columns,
 /// supporting the major ClickHouse data types and nullable/array wrappers.
-/// 
+///
 /// See: https://clickhouse.com/docs/en/sql-reference/data-types/
+import gleam/int
 import gleam/list
 import gleam/option.{type Option}
 import gleam/string
+import sparkling/expr
 
 /// ClickHouse field types supported by sparkling.
-/// Examples: docs/examples/schema_examples.md
 pub type FieldType {
   // Integer types
   UInt8
@@ -75,19 +76,16 @@ pub type Table {
 }
 
 /// Create a new table definition.
-/// Examples: docs/examples/schema_examples.md
 pub fn table(name: String, fields: List(Field)) -> Table {
   Table(name: name, fields: fields)
 }
 
 /// Create a new field definition.
-/// Examples: docs/examples/schema_examples.md
 pub fn field(name: String, typ: FieldType) -> Field {
   Field(name: name, typ: typ)
 }
 
 /// Get the SQL representation of a field type for CREATE TABLE DDL.
-/// Examples: docs/examples/schema_examples.md
 pub fn field_type_to_sql(typ: FieldType) -> String {
   case typ {
     UInt8 -> "UInt8"
@@ -101,16 +99,16 @@ pub fn field_type_to_sql(typ: FieldType) -> String {
     Float32 -> "Float32"
     Float64 -> "Float64"
     String -> "String"
-    FixedString(size) -> "FixedString(" <> string.inspect(size) <> ")"
+    FixedString(size) -> "FixedString(" <> int.to_string(size) <> ")"
     Date -> "Date"
     Date32 -> "Date32"
     DateTime -> "DateTime"
-    DateTime64(precision) -> "DateTime64(" <> string.inspect(precision) <> ")"
+    DateTime64(precision) -> "DateTime64(" <> int.to_string(precision) <> ")"
     Decimal(precision, scale) ->
       "Decimal("
-      <> string.inspect(precision)
+      <> int.to_string(precision)
       <> ", "
-      <> string.inspect(scale)
+      <> int.to_string(scale)
       <> ")"
     Bool -> "Bool"
     UUID -> "UUID"
@@ -129,7 +127,9 @@ pub fn field_type_to_sql(typ: FieldType) -> String {
       let inner =
         values
         |> list.map(fn(pair) {
-          "'" <> pair.0 <> "' = " <> string.inspect(pair.1)
+          // Escape single quotes in enum labels using SQL double-quote style ('')
+          let escaped = string.replace(pair.0, "'", "''")
+          "'" <> escaped <> "' = " <> int.to_string(pair.1)
         })
         |> string.join(", ")
       "Enum8(" <> inner <> ")"
@@ -138,7 +138,8 @@ pub fn field_type_to_sql(typ: FieldType) -> String {
       let inner =
         values
         |> list.map(fn(pair) {
-          "'" <> pair.0 <> "' = " <> string.inspect(pair.1)
+          let escaped = string.replace(pair.0, "'", "''")
+          "'" <> escaped <> "' = " <> int.to_string(pair.1)
         })
         |> string.join(", ")
       "Enum16(" <> inner <> ")"
@@ -147,21 +148,27 @@ pub fn field_type_to_sql(typ: FieldType) -> String {
 }
 
 /// Generate a CREATE TABLE statement for a table definition.
-/// 
+/// Table and field names are properly escaped for ClickHouse.
+///
 /// Note: This is a minimal DDL generator. For production use, specify engine,
 /// partition key, order by, etc., using ClickHouse-specific syntax.
-/// Examples: docs/examples/schema_examples.md
 pub fn to_create_table_sql(tbl: Table, engine engine: String) -> String {
   let field_defs =
     tbl.fields
-    |> list.map(fn(f) { f.name <> " " <> field_type_to_sql(f.typ) })
+    |> list.map(fn(f) {
+      expr.to_sql(expr.Field(f.name)) <> " " <> field_type_to_sql(f.typ)
+    })
     |> string.join(", ")
 
-  "CREATE TABLE " <> tbl.name <> " (" <> field_defs <> ") ENGINE = " <> engine
+  "CREATE TABLE "
+  <> expr.to_sql(expr.Field(tbl.name))
+  <> " ("
+  <> field_defs
+  <> ") ENGINE = "
+  <> engine
 }
 
 /// Find a field in a table by name.
-/// Examples: docs/examples/schema_examples.md
 pub fn find_field(tbl: Table, field_name: String) -> Option(Field) {
   tbl.fields
   |> list.find(fn(f) { f.name == field_name })
@@ -169,7 +176,6 @@ pub fn find_field(tbl: Table, field_name: String) -> Option(Field) {
 }
 
 /// Get all field names from a table.
-/// Examples: docs/examples/schema_examples.md
 pub fn field_names(tbl: Table) -> List(String) {
   tbl.fields |> list.map(fn(f) { f.name })
 }

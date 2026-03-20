@@ -1,5 +1,9 @@
 //// Retry logic with exponential backoff and jitter for resilient operations.
-//// Used by both repo and transport layers to handle transient failures.
+//// Used by the repo layer to handle transient failures.
+////
+//// Note on time units: erlang:monotonic_time/0 and erlang:system_time/0 return
+//// native units. On OTP 18+ (Linux/macOS/Windows) native = nanoseconds.
+//// This is a safe assumption for OTP 27+ as used by this library.
 
 import gleam/erlang/process
 import gleam/float
@@ -8,11 +12,12 @@ import gleam/int
 /// Configuration for retry behavior
 pub type RetryConfig {
   RetryConfig(
-    /// Maximum number of retry attempts
+    /// Maximum total number of attempts (first attempt + retries).
+    /// E.g. max_attempts=3 → 1 initial try + up to 2 retries = 3 total.
     max_attempts: Int,
     /// Base delay in milliseconds for exponential backoff
     base_delay_ms: Int,
-    /// Maximum delay between retries
+    /// Maximum delay between retries in milliseconds
     max_delay_ms: Int,
     /// Jitter factor (0.0 = no jitter, 1.0 = full jitter)
     jitter_factor: Float,
@@ -39,34 +44,36 @@ pub fn network_config() -> RetryConfig {
   )
 }
 
-/// Execute an operation with retry logic
-/// Returns the result of the first successful attempt, or the last error
+/// Execute an operation with retry logic.
+/// `on_retry(attempt, error)` is called before each retry, where attempt
+/// starts at 1. Returns the first successful result or the last error.
 pub fn with_retry(
   config: RetryConfig,
   operation: fn() -> Result(a, b),
   is_retryable_error: fn(b) -> Bool,
+  on_retry: fn(Int, b) -> Nil,
 ) -> Result(a, b) {
-  do_retry(config, operation, is_retryable_error, 0)
+  do_retry(config, operation, is_retryable_error, on_retry, 0)
 }
 
-/// Internal retry implementation
 fn do_retry(
   config: RetryConfig,
   operation: fn() -> Result(a, b),
   is_retryable_error: fn(b) -> Bool,
+  on_retry: fn(Int, b) -> Nil,
   attempt: Int,
 ) -> Result(a, b) {
   case operation() {
     Ok(result) -> Ok(result)
     Error(err) -> {
-      case attempt < config.max_attempts && is_retryable_error(err) {
+      // attempt + 1 < max_attempts means we still have attempts left
+      case attempt + 1 < config.max_attempts && is_retryable_error(err) {
         True -> {
-          // Calculate delay with exponential backoff and jitter
+          let next = attempt + 1
+          on_retry(next, err)
           let delay = calculate_delay(config, attempt)
           process.sleep(delay)
-
-          // Retry with incremented attempt counter
-          do_retry(config, operation, is_retryable_error, attempt + 1)
+          do_retry(config, operation, is_retryable_error, on_retry, next)
         }
         False -> Error(err)
       }
@@ -76,13 +83,11 @@ fn do_retry(
 
 /// Calculate delay with exponential backoff and jitter
 fn calculate_delay(config: RetryConfig, attempt: Int) -> Int {
-  // Exponential backoff: base_delay * 2^attempt
   let exponential_delay = config.base_delay_ms * int_pow(2, attempt)
-
-  // Cap at maximum delay
   let capped_delay = int.min(exponential_delay, config.max_delay_ms)
 
-  // Add jitter to avoid thundering herd
+  // Jitter: modulo of native system time gives pseudo-random value in
+  // [0, jitter_range_ms). The result is in ms regardless of the time unit.
   let jitter_range =
     float.round(int.to_float(capped_delay) *. config.jitter_factor)
   let jitter = case jitter_range > 0 {
@@ -93,16 +98,13 @@ fn calculate_delay(config: RetryConfig, attempt: Int) -> Int {
   capped_delay + jitter
 }
 
-/// Integer power function (simple recursive implementation)
 fn int_pow(base: Int, exponent: Int) -> Int {
   case exponent {
     0 -> 1
     n if n > 0 -> base * int_pow(base, n - 1)
     _ -> 1
-    // Negative exponents not supported
   }
 }
 
-/// Get system time for jitter calculation
 @external(erlang, "erlang", "system_time")
 fn erlang_system_time() -> Int

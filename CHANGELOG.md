@@ -5,13 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
 
-### Added
+## [1.1.0] - 2026-03-20
 
-- (Unreleased changes go here)
+### Changed
 
-## [0.1.0] - 2025-11-09
+- Simplified and refactored `types.gleam`, `expr.gleam`, `format/registry.gleam`, `format/json_each_row.gleam`, `repo.gleam`, `retry.gleam`, `schema.gleam`, `changeset.gleam`, `decode.gleam`, `query.gleam` — reduced surface area, improved type safety, removed redundant code
+- Rewrote `docs/quickstart.md` with correct, runnable code examples
+- Added missing documentation for all core modules: `query`, `repo`, `encode`, `decode`, `changeset`, `types`, `schema`
+- Removed `release.yml` and `smoke-integration.yml` workflows; CI consolidated under `ci.yml`
+- Fixed stray character and incorrect function call in README
+
+## [1.0.0] - 2025-11-09
 
 ### Added
 
@@ -60,5 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Style guide for contributions
 
 <!-- Link references for versions -->
-[Unreleased]: https://github.com/lupodevelop/sparkling/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/lupodevelop/sparkling/releases/tag/v0.1.0
+[Unreleased]: https://github.com/lupodevelop/sparkling/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/lupodevelop/sparkling/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/lupodevelop/sparkling/compare/v0.1.0...v1.0.0

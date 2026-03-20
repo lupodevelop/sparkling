@@ -21,6 +21,9 @@ pub type Repo {
     password: Option(String),
     on_event: fn(Event) -> Nil,
     retry_config: RetryConfig,
+    /// Timeout in milliseconds. Note: gleam_httpc does not currently expose
+    /// a per-request timeout option. This field is reserved for future use
+    /// or custom transport implementations.
     timeout_ms: Int,
   )
 }
@@ -80,23 +83,20 @@ pub fn with_retry_config(repo: Repo, config: RetryConfig) -> Repo {
   Repo(..repo, retry_config: config)
 }
 
-/// Set query timeout in milliseconds
+/// Set query timeout in milliseconds.
+/// Note: timeout enforcement is not yet implemented in the HTTP transport.
 pub fn with_timeout(repo: Repo, timeout_ms: Int) -> Repo {
   Repo(..repo, timeout_ms: timeout_ms)
 }
 
 /// Execute a SQL query and return the response body as a string.
-/// This is the low-level interface; higher-level functions will parse the response.
 pub fn execute_sql(repo: Repo, sql: String) -> Result(String, RepoError) {
-  // Emit QueryStart event
   let start_time = erlang_monotonic_time()
   repo.on_event(QueryStart(sql))
 
-  // Build request
   case build_request(repo, sql) {
     Ok(req) -> {
-      // Execute with retries
-      case execute_with_retries(repo, req) {
+      case execute_with_retries(repo, req, sql) {
         Ok(body) -> {
           let duration = calculate_duration(start_time)
           repo.on_event(QueryEnd(sql, duration))
@@ -116,7 +116,6 @@ pub fn execute_sql(repo: Repo, sql: String) -> Result(String, RepoError) {
 }
 
 /// Execute a query and parse the response using a decoder.
-/// This is a higher-level interface that combines execute_sql with decoding.
 pub fn query(
   repo: Repo,
   sql: String,
@@ -129,17 +128,14 @@ pub fn query(
 
 /// Build an HTTP request for ClickHouse
 fn build_request(repo: Repo, sql: String) -> Result(Request(String), RepoError) {
-  // Parse base URL
   case uri.parse(repo.base_url) {
     Error(_) -> Error(ConnectionError("Invalid base URL: " <> repo.base_url))
     Ok(base) -> {
-      // Build query parameters
       let query_params = case repo.database {
         Some(db) -> [#("database", db)]
         None -> []
       }
 
-      // Create POST request
       let req =
         request.new()
         |> request.set_method(http.Post)
@@ -151,19 +147,16 @@ fn build_request(repo: Repo, sql: String) -> Result(Request(String), RepoError) 
           _ -> http.Http
         })
 
-      // Set port if specified
       let req = case base.port {
         Some(port) -> request.set_port(req, port)
         None -> req
       }
 
-      // Set query parameters if present
       let req = case query_params {
         [] -> req
         params -> request.set_query(req, params)
       }
 
-      // Add authentication if set
       let req = case repo.user, repo.password {
         Some(user), Some(pass) -> {
           let credentials = user <> ":" <> pass
@@ -179,23 +172,18 @@ fn build_request(repo: Repo, sql: String) -> Result(Request(String), RepoError) 
   }
 }
 
-/// Execute request with retry logic
+/// Execute request with retry logic, emitting RetryAttempt events
 fn execute_with_retries(
   repo: Repo,
   req: Request(String),
+  sql: String,
 ) -> Result(String, RepoError) {
   let operation = fn() {
-    // Use direct httpc
     case httpc.send(req) {
       Ok(response) -> {
-        // Check HTTP status code
         case response.status {
-          200 -> {
-            // Success - return body as string
-            Ok(response.body)
-          }
+          200 -> Ok(response.body)
           status -> {
-            // ClickHouse error - try to extract error message from body
             let error_msg = case string.is_empty(response.body) {
               True -> "HTTP " <> int.to_string(status)
               False -> response.body
@@ -212,17 +200,18 @@ fn execute_with_retries(
     case err {
       ConnectionError(_) -> True
       HttpError(_) -> True
-      // Don't retry ClickHouse errors (4xx/5xx with response)
       ClickHouseError(_, _) -> False
-      // Don't retry parse errors
       ParseError(_) -> False
     }
   }
 
-  retry.with_retry(repo.retry_config, operation, is_retryable_error)
+  let on_retry = fn(attempt: Int, err: RepoError) {
+    repo.on_event(RetryAttempt(sql, attempt, error_to_string(err)))
+  }
+
+  retry.with_retry(repo.retry_config, operation, is_retryable_error, on_retry)
 }
 
-/// Convert error to string for logging
 fn error_to_string(error: RepoError) -> String {
   case error {
     HttpError(msg) -> "HTTP error: " <> msg
@@ -238,18 +227,14 @@ fn error_to_string(error: RepoError) -> String {
   }
 }
 
-/// Get monotonic time for duration calculation
+/// Get monotonic time in native units (nanoseconds on OTP 18+)
 @external(erlang, "erlang", "monotonic_time")
 fn erlang_monotonic_time() -> Int
 
-/// Calculate duration in milliseconds from start time
+/// Calculate duration in milliseconds from a start time (native units / 1_000_000)
 fn calculate_duration(start_time: Int) -> Int {
-  let end_time = erlang_monotonic_time()
-  let duration_native = end_time - start_time
-  // Convert to milliseconds (native unit is typically nanoseconds)
-  duration_native / 1_000_000
+  { erlang_monotonic_time() - start_time } / 1_000_000
 }
 
-/// Base64 encode using Erlang's base64 module
 @external(erlang, "base64", "encode")
 fn bit_array_to_base64(input: BitArray) -> String
