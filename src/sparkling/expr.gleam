@@ -314,7 +314,10 @@ fn contains_special_chars(name: String) -> Bool {
 
 /// Check if a grapheme is a letter (a-z, A-Z) or underscore.
 fn is_letter_or_underscore(grapheme: String) -> Bool {
-  string.contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", grapheme)
+  string.contains(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_",
+    grapheme,
+  )
 }
 
 /// Check if a grapheme is alphanumeric (a-z, A-Z, 0-9) or underscore.

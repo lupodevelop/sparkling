@@ -137,19 +137,14 @@ fn do_parse_csv(
     [], False -> Ok(list.reverse([current, ..acc]))
     [], True -> Error("Unterminated quoted field")
     // Two consecutive quotes inside a quoted field → escaped quote char
-    ["\"", "\"", ..rest], True ->
-      do_parse_csv(rest, True, current <> "\"", acc)
+    ["\"", "\"", ..rest], True -> do_parse_csv(rest, True, current <> "\"", acc)
     // Opening quote (start of a quoted field)
-    ["\"", ..rest], False ->
-      do_parse_csv(rest, True, current, acc)
+    ["\"", ..rest], False -> do_parse_csv(rest, True, current, acc)
     // Closing quote
-    ["\"", ..rest], True ->
-      do_parse_csv(rest, False, current, acc)
+    ["\"", ..rest], True -> do_parse_csv(rest, False, current, acc)
     // Field separator (outside quotes)
-    [",", ..rest], False ->
-      do_parse_csv(rest, False, "", [current, ..acc])
+    [",", ..rest], False -> do_parse_csv(rest, False, "", [current, ..acc])
     // Any other character
-    [c, ..rest], _ ->
-      do_parse_csv(rest, in_quotes, current <> c, acc)
+    [c, ..rest], _ -> do_parse_csv(rest, in_quotes, current <> c, acc)
   }
 }
