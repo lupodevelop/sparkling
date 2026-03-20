@@ -160,8 +160,9 @@ fn string_preview(s: String) -> String {
   }
 }
 
-/// Convert Dynamic to Dict(String, json.Json) - for decode_json_each_row_dict.
-fn dynamic_to_string_json_dict(
+/// Convert Dynamic to Dict(String, json.Json).
+/// Used internally and by format handlers (e.g. format/json_each_row).
+pub fn dynamic_to_string_json_dict(
   dyn: Dynamic,
 ) -> Result(Dict(String, json.Json), Nil) {
   case decode.run(dyn, decode.dict(decode.string, decode.dynamic)) {
@@ -177,7 +178,8 @@ fn dynamic_to_string_json_dict(
 
 /// Convert Dynamic to json.Json with proper structure preservation.
 /// Handles primitives (String, Int, Float, Bool, Null) and complex types (List, Dict).
-fn dynamic_to_json(dyn: Dynamic) -> json.Json {
+/// Used internally and by format handlers (e.g. format/json_each_row).
+pub fn dynamic_to_json(dyn: Dynamic) -> json.Json {
   case dynamic.classify(dyn) {
     "String" -> {
       case decode.run(dyn, decode.string) {

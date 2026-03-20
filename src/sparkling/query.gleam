@@ -1,5 +1,6 @@
 /// Immutable query builder for constructing SELECT queries in a type-safe way.
 /// Follows the design pattern of Ecto.Query with method chaining for ClickHouse.
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -190,13 +191,13 @@ fn build_sql(query: Query) -> String {
   // LIMIT clause
   let limit_clause = case query.limit {
     None -> ""
-    Some(n) -> " LIMIT " <> string.inspect(n)
+    Some(n) -> " LIMIT " <> int.to_string(n)
   }
 
   // OFFSET clause
   let offset_clause = case query.offset {
     None -> ""
-    Some(n) -> " OFFSET " <> string.inspect(n)
+    Some(n) -> " OFFSET " <> int.to_string(n)
   }
 
   select_clause

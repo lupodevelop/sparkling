@@ -1,5 +1,4 @@
-/// CSV format handler - comma-separated values with optional quoting
-/// Standard CSV format with comma delimiters and quote escaping.
+/// CSV format handler - comma-separated values with RFC 4180 quoting.
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/json
@@ -7,70 +6,76 @@ import gleam/list
 import gleam/string
 import sparkling/format/registry
 
-/// Create CSV format handler
+/// Create CSV format handler.
 pub fn handler() -> registry.FormatHandler {
   registry.FormatHandler(name: "CSV", encode: encode, decode: decode)
 }
 
-/// Encode list of records to CSV format
+/// Encode list of records to CSV format (header row + data rows).
 fn encode(records: List(Dict(String, json.Json))) -> Result(String, String) {
   case records {
     [] -> Ok("")
     [first, ..] -> {
       let keys = dict.keys(first)
-      let header = encode_csv_row(list.map(keys, json.string))
-
+      // Column names go as plain strings in the header (not JSON-encoded)
+      let header = keys |> list.map(csv_escape_string) |> string.join(",")
       let rows =
         records
         |> list.map(fn(record) { encode_record_csv(record, keys) })
         |> string.join("\n")
-
       Ok(header <> "\n" <> rows)
     }
   }
 }
 
-/// Encode single record to CSV row
+/// Encode single record to CSV row (values extracted from json.Json).
 fn encode_record_csv(
   record: Dict(String, json.Json),
   keys: List(String),
 ) -> String {
   keys
   |> list.map(fn(key) {
-    case dict.get(record, key) {
-      Ok(value) -> value
-      Error(_) -> json.string("")
+    let value = case dict.get(record, key) {
+      Ok(v) -> json_to_plain_string(v)
+      Error(_) -> ""
     }
+    csv_escape_string(value)
   })
-  |> encode_csv_row
-}
-
-/// Encode list of json values to CSV row with proper escaping
-fn encode_csv_row(values: List(json.Json)) -> String {
-  values
-  |> list.map(csv_escape)
   |> string.join(",")
 }
 
-/// Escape value for CSV format
-fn csv_escape(value: json.Json) -> String {
-  let str = json.to_string(value)
-
-  // If contains comma, quote, or newline, wrap in quotes and escape quotes
+/// Extract a plain string representation from a json.Json value.
+/// JSON strings are unwrapped (quotes removed); other types use their
+/// JSON representation (e.g. 42, true, null).
+fn json_to_plain_string(value: json.Json) -> String {
+  let s = json.to_string(value)
+  // JSON strings are wrapped in double-quotes: strip them
   case
-    string.contains(str, ",")
-    || string.contains(str, "\"")
-    || string.contains(str, "\n")
+    string.starts_with(s, "\"")
+    && string.ends_with(s, "\"")
+    && string.length(s) >= 2
   {
-    True -> {
-      let escaped = string.replace(str, "\"", "\"\"")
-      "\"" <> escaped <> "\""
-    }
-    False -> str
+    True -> string.slice(s, 1, string.length(s) - 2)
+    False -> s
   }
 }
 
-/// Decode CSV format to list of records
+/// Escape a plain string for CSV: wrap in double-quotes if it contains
+/// commas, double-quotes, or newlines. Double-quotes inside are doubled ("").
+fn csv_escape_string(s: String) -> String {
+  case
+    string.contains(s, ",")
+    || string.contains(s, "\"")
+    || string.contains(s, "\n")
+    || string.contains(s, "\r")
+  {
+    True -> "\"" <> string.replace(s, "\"", "\"\"") <> "\""
+    False -> s
+  }
+}
+
+/// Decode CSV format to list of records.
+/// First row is the header (column names); subsequent rows are data.
 fn decode(data: String) -> Result(List(Dict(String, json.Json)), String) {
   let lines =
     data
@@ -81,20 +86,18 @@ fn decode(data: String) -> Result(List(Dict(String, json.Json)), String) {
     [] -> Ok([])
     [header, ..rows] -> {
       case parse_csv_row(header) {
-        Ok(keys) -> {
+        Ok(keys) ->
           rows
           |> list.index_map(fn(row, index) { #(row, index) })
           |> list.try_map(fn(row_with_index) {
             decode_csv_row(row_with_index, keys)
           })
-        }
         Error(err) -> Error("Header parse error: " <> err)
       }
     }
   }
 }
 
-/// Decode single CSV row
 fn decode_csv_row(
   row_with_index: #(String, Int),
   keys: List(String),
@@ -104,15 +107,11 @@ fn decode_csv_row(
   case parse_csv_row(row) {
     Ok(values) -> {
       case list.length(values) == list.length(keys) {
-        True -> {
+        True ->
           list.zip(keys, values)
-          |> list.map(fn(pair) {
-            let #(key, value) = pair
-            #(key, json.string(value))
-          })
+          |> list.map(fn(pair) { #(pair.0, json.string(pair.1)) })
           |> dict.from_list
           |> Ok
-        }
         False ->
           Error("Row " <> int.to_string(index + 1) <> ": Column count mismatch")
       }
@@ -121,11 +120,31 @@ fn decode_csv_row(
   }
 }
 
-/// Parse CSV row handling quoted values
-/// Simplified parser: splits by comma. For RFC 4180 full compliance with quoted fields,
-/// escaped quotes, and embedded newlines, use a dedicated CSV parsing library.
+/// Parse a CSV row according to RFC 4180.
+/// Handles quoted fields (with embedded commas, newlines, and escaped quotes "").
 fn parse_csv_row(row: String) -> Result(List(String), String) {
-  // Basic split by comma - adequate for simple CSV without quoted delimiters
-  // For production with complex CSV (quotes, escapes), integrate a proper CSV parser
-  Ok(string.split(row, ",") |> list.map(string.trim))
+  do_parse_csv(string.to_graphemes(row), False, "", [])
+}
+
+fn do_parse_csv(
+  chars: List(String),
+  in_quotes: Bool,
+  current: String,
+  acc: List(String),
+) -> Result(List(String), String) {
+  case chars, in_quotes {
+    // End of input
+    [], False -> Ok(list.reverse([current, ..acc]))
+    [], True -> Error("Unterminated quoted field")
+    // Two consecutive quotes inside a quoted field → escaped quote char
+    ["\"", "\"", ..rest], True -> do_parse_csv(rest, True, current <> "\"", acc)
+    // Opening quote (start of a quoted field)
+    ["\"", ..rest], False -> do_parse_csv(rest, True, current, acc)
+    // Closing quote
+    ["\"", ..rest], True -> do_parse_csv(rest, False, current, acc)
+    // Field separator (outside quotes)
+    [",", ..rest], False -> do_parse_csv(rest, False, "", [current, ..acc])
+    // Any other character
+    [c, ..rest], _ -> do_parse_csv(rest, in_quotes, current <> c, acc)
+  }
 }

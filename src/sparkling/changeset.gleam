@@ -203,7 +203,9 @@ pub fn format_errors(errors: List(FieldError)) -> String {
   |> string.join(", ")
 }
 
-/// Helper: validate email format (simple check)
+/// Helper: validate email format.
+/// Checks for a single "@" with non-empty local and domain parts, and at least
+/// one "." in the domain part after "@".
 pub fn validate_email(
   changeset: Changeset(data),
   field: String,
@@ -211,7 +213,17 @@ pub fn validate_email(
   validate_format(
     changeset,
     field,
-    fn(email) { string.contains(email, "@") && string.contains(email, ".") },
+    fn(email) {
+      case string.split(email, "@") {
+        [local, domain] ->
+          string.length(local) > 0
+          && string.contains(domain, ".")
+          && !string.starts_with(domain, ".")
+          && !string.ends_with(domain, ".")
+          && string.length(domain) > 2
+        _ -> False
+      }
+    },
     "Invalid email format",
   )
 }

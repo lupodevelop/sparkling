@@ -12,18 +12,20 @@ pub fn handler() -> registry.FormatHandler {
   registry.FormatHandler(name: "TabSeparated", encode: encode, decode: decode)
 }
 
-/// Encode list of records to TabSeparated format
-/// Note: This assumes all records have the same keys in the same order
+/// Encode list of records to TabSeparated format.
+/// First row is the header (column names); subsequent rows are data.
+/// Note: This assumes all records have the same keys in the same order.
 fn encode(records: List(Dict(String, json.Json))) -> Result(String, String) {
   case records {
     [] -> Ok("")
     [first, ..] -> {
       let keys = dict.keys(first)
-
-      records
-      |> list.map(fn(record) { encode_record(record, keys) })
-      |> string.join("\n")
-      |> Ok
+      let header = string.join(keys, "\t")
+      let rows =
+        records
+        |> list.map(fn(record) { encode_record(record, keys) })
+        |> string.join("\n")
+      Ok(header <> "\n" <> rows)
     }
   }
 }

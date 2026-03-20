@@ -1,35 +1,32 @@
-/// JSONEachRow format handler - default ClickHouse JSON format
+/// JSONEachRow format handler - default ClickHouse JSON format.
 /// Each row is a separate JSON object on its own line.
 import gleam/dict.{type Dict}
-import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
 import gleam/string
+import sparkling/decode as sparkling_decode
 import sparkling/format/registry
 
-/// Create JSONEachRow format handler
+/// Create JSONEachRow format handler.
 pub fn handler() -> registry.FormatHandler {
-  registry.FormatHandler(name: "JSONEachRow", encode: encode, decode: decode)
+  registry.FormatHandler(name: "JSONEachRow", encode: encode, decode: do_decode)
 }
 
-/// Encode list of records to JSONEachRow format
+/// Encode list of records to JSONEachRow format (one JSON object per line).
 fn encode(records: List(Dict(String, json.Json))) -> Result(String, String) {
   records
-  |> list.map(encode_record)
+  |> list.map(fn(record) {
+    json.object(dict.to_list(record))
+    |> json.to_string
+  })
   |> string.join("\n")
   |> Ok
 }
 
-/// Encode single record to JSON object string
-fn encode_record(record: Dict(String, json.Json)) -> String {
-  json.object(dict.to_list(record))
-  |> json.to_string
-}
-
-/// Decode JSONEachRow format to list of records
-fn decode(data: String) -> Result(List(Dict(String, json.Json)), String) {
+/// Decode JSONEachRow format to list of records.
+fn do_decode(data: String) -> Result(List(Dict(String, json.Json)), String) {
   data
   |> string.split("\n")
   |> list.filter(fn(line) { !string.is_empty(string.trim(line)) })
@@ -37,7 +34,6 @@ fn decode(data: String) -> Result(List(Dict(String, json.Json)), String) {
   |> list.try_map(decode_line)
 }
 
-/// Decode single line with error context
 fn decode_line(
   line_with_index: #(String, Int),
 ) -> Result(Dict(String, json.Json), String) {
@@ -45,14 +41,13 @@ fn decode_line(
 
   case json.parse(from: line, using: decode.dynamic) {
     Ok(dynamic_value) -> {
-      // Convert dynamic to Dict(String, json.Json)
-      case dynamic_to_dict(dynamic_value) {
-        Ok(dict_value) -> Ok(dict_value)
+      case sparkling_decode.dynamic_to_string_json_dict(dynamic_value) {
+        Ok(d) -> Ok(d)
         Error(_) ->
           Error(
             "Line "
             <> int.to_string(index + 1)
-            <> ": Failed to convert to dict - "
+            <> ": Not a JSON object - "
             <> string_excerpt(line, 100),
           )
       }
@@ -67,26 +62,6 @@ fn decode_line(
   }
 }
 
-/// Convert dynamic value to Dict(String, json.Json)
-/// Uses dynamic.classify to inspect the structure and convert recursively
-fn dynamic_to_dict(dyn: dynamic.Dynamic) -> Result(Dict(String, json.Json), Nil) {
-  // Try to decode as a dict-like structure
-  // For now we use a simplified approach: serialize to JSON string and re-parse
-  case dynamic.classify(dyn) {
-    "Map" | "Dict" -> {
-      // Dynamic is a map/dict - we need to convert it
-      // Simplified: return empty dict (full implementation would require iterating keys)
-      // In practice, json.parse already gives us the right structure
-      Ok(dict.new())
-    }
-    _ -> {
-      // Not a dict-like structure
-      Error(Nil)
-    }
-  }
-}
-
-/// Extract first N characters of string for error messages
 fn string_excerpt(str: String, max_len: Int) -> String {
   case string.length(str) > max_len {
     True -> string.slice(str, 0, max_len) <> "..."

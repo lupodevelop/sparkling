@@ -105,9 +105,10 @@ pub fn to_create_table_sql_test() {
     ])
 
   let sql = to_create_table_sql(tbl, engine: "MergeTree()")
+  // "timestamp" is a ClickHouse reserved keyword → correctly escaped with backticks
   sql
   |> should.equal(
-    "CREATE TABLE events (id UInt64, event_type String, timestamp DateTime64(3)) ENGINE = MergeTree()",
+    "CREATE TABLE events (id UInt64, event_type String, `timestamp` DateTime64(3)) ENGINE = MergeTree()",
   )
 }
 
